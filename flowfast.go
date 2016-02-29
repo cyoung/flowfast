@@ -11,6 +11,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/kidoman/embd"
 	"github.com/op/go-logging"
 	"golang.org/x/net/websocket"
 	"net/http"
@@ -55,6 +56,37 @@ func startWebListener() {
 	}
 }
 
+var i2cbus embd.I2CBus
+
+var inputChan chan uint16
+
+func processInput() {
+	for {
+		v := <-inputChan
+		logger.Debugf("%d\n", v)
+		//TODO: Add stuff here to count input.
+	}
+}
+
+func readADS1115() {
+	inputChan = make(chan uint16, 1024)
+	i2cbus = embd.NewI2CBus(1) //TODO: error checking.
+
+	go processInput()
+
+	for {
+		v, err := i2cbus.ReadWordFromReg(0x48, 0x00)
+		if err != nil {
+			logger.Errorf("ReadWordFromReg(): %s\n", err.Error())
+		}
+
+		inputChan <- v
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return
+}
+
 func main() {
 	// Set up logging for stdout (colors).
 	logBackend := logging.NewLogBackend(os.Stderr, "", 0)
@@ -73,6 +105,7 @@ func main() {
 	logging.SetBackend(logBackendFormatter, logFileBackendFormatter)
 
 	go startWebListener()
+	//go readADS1115()
 
 	// Wait indefinitely.
 	select {}
