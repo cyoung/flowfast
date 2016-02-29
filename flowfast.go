@@ -24,7 +24,10 @@ const (
 )
 
 type FlowStats struct {
-	TotalFlow float64
+	Flow_Total        float64
+	Flow_LastMinute   float64
+	Flow_LastSecond   float64
+	Flow_MaxPerMinute float64
 }
 
 var flow FlowStats
