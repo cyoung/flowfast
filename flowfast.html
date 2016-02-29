@@ -1,0 +1,69 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+	<script type="text/javascript">
+	window.onload = function () {
+
+		var ws = new WebSocket("ws://192.168.1.145:8081/");
+
+		var dps = []; // dataPoints
+
+		var chart = new CanvasJS.Chart("chartContainer",{
+			title :{
+				text: "Fuel Flow (last minute)"
+			},			
+			data: [{
+				type: "line",
+				dataPoints: dps 
+			}],
+			axisX: {
+				title: 'sec'
+			},
+			axisY: {
+				title: 'gph'
+			}
+		});
+
+		var xVal = 0;
+		var yVal = 100;	
+		var updateInterval = 100;
+		var dataLength = 60; // number of dataPoints visible at any point
+
+		// Populate with zero data to start.
+		for (i = 0; i < dataLength; i++) {
+			dps.push({
+				x: i,
+				y: 0
+			});
+		}
+		chart.render();
+
+		ws.onmessage = function(msg) {
+			obj = JSON.parse(msg.data);
+			console.log(obj.Flow_LastSecond);
+			
+			yVal = obj.Flow_LastSecond
+			dps.push({
+				x: xVal,
+				y: yVal
+			});
+			xVal++;
+
+			if (dps.length > dataLength) {
+				dps.shift();
+			}
+			
+			chart.render();	
+
+		};
+
+	}
+	</script>
+	<script type="text/javascript" src="js/canvasjs.min.js"></script>
+</head>
+<body>
+	<div id="chartContainer" style="height: 300px; width:100%;">
+	</div>
+</body>
+</html>

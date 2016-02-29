@@ -48,7 +48,8 @@ func statusWebSocket(conn *websocket.Conn) {
 		conn.Write(updateJSON)
 		//FIXME: Temporary.
 		n++
-		logChan <- (float64(n) / 10.0)
+		flow.Flow_LastSecond = (float64(n) / 10.0)
+		logChan <- flow.Flow_LastSecond
 	}
 }
 
@@ -132,7 +133,8 @@ func dbLogger() {
 
 	for {
 		f := <-logChan
-		q := fmt.Sprintf("INSERT INTO fuel_flow(log_date_start, log_date_end, flow) values(%d, %d, %f)", 123, 321, f)
+		//FIXME: Timestamps here are a hack.
+		q := fmt.Sprintf("INSERT INTO fuel_flow(log_date_start, log_date_end, flow) values(%d, %d, %f)", time.Now().Unix()-1, time.Now().Unix(), f)
 		_, err = db.Exec(q)
 		if err != nil {
 			logger.Errorf("stmt.Exec(): %s\n", err.Error())
