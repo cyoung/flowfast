@@ -10,8 +10,11 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"github.com/kidoman/embd"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/op/go-logging"
 	"golang.org/x/net/websocket"
 	"net/http"
@@ -21,6 +24,8 @@ import (
 
 const (
 	GALLONS_PER_CLICK = 1 / 68000.0 // FT-60 K-factor: 68,000.
+	SQLITE_DB_FILE    = "./test.db"
+	LISTEN_ADDR       = ":8081"
 )
 
 type FlowStats struct {
@@ -36,10 +41,14 @@ var logger = logging.MustGetLogger("flowfast")
 
 func statusWebSocket(conn *websocket.Conn) {
 	ticker := time.NewTicker(1 * time.Second)
+	n := 0
 	for {
 		<-ticker.C
 		updateJSON, _ := json.Marshal(&flow) //TODO.
 		conn.Write(updateJSON)
+		//FIXME: Temporary.
+		n++
+		logChan <- (float64(n) / 10.0)
 	}
 }
 
@@ -51,8 +60,8 @@ func startWebListener() {
 			s.ServeHTTP(w, req)
 		})
 
-	logger.Debugf("listening on :8081.\n")
-	err := http.ListenAndServe(":8081", nil)
+	logger.Debugf("listening on %s.\n", LISTEN_ADDR)
+	err := http.ListenAndServe(LISTEN_ADDR, nil)
 	if err != nil {
 		logger.Errorf("can't listen on socket: %s\n", err.Error())
 		os.Exit(-1)
@@ -90,6 +99,47 @@ func readADS1115() {
 	return
 }
 
+var logChan chan float64
+
+// Logs fuel data to an SQLite database.
+func dbLogger() {
+	logChan = make(chan float64, 1024)
+
+	// Check if we need to create a new database.
+	createDatabase := false
+	if _, err := os.Stat(SQLITE_DB_FILE); os.IsNotExist(err) {
+		createDatabase = true
+		logger.Debugf("creating new database '%s'.\n", SQLITE_DB_FILE)
+	}
+
+	db, err := sql.Open("sqlite3", SQLITE_DB_FILE)
+	if err != nil {
+		logger.Errorf("sql.Open(): %s\n", err.Error())
+	}
+	defer db.Close()
+
+	if createDatabase {
+		createSmt := `
+			CREATE TABLE fuel_flow (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, log_date_start INTEGER, log_date_end INTEGER, flow REAL);
+		`
+
+		_, err = db.Exec(createSmt)
+		if err != nil {
+			logger.Errorf("%q: %s\n", err, createSmt)
+			return
+		}
+	}
+
+	for {
+		f := <-logChan
+		q := fmt.Sprintf("INSERT INTO fuel_flow(log_date_start, log_date_end, flow) values(%d, %d, %f)", 123, 321, f)
+		_, err = db.Exec(q)
+		if err != nil {
+			logger.Errorf("stmt.Exec(): %s\n", err.Error())
+		}
+	}
+}
+
 func main() {
 	// Set up logging for stdout (colors).
 	logBackend := logging.NewLogBackend(os.Stderr, "", 0)
@@ -108,6 +158,7 @@ func main() {
 	logging.SetBackend(logBackendFormatter, logFileBackendFormatter)
 
 	go startWebListener()
+	go dbLogger()
 	//go readADS1115()
 
 	// Wait indefinitely.
