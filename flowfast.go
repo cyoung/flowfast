@@ -87,7 +87,7 @@ func startWebListener() {
 
 var i2cbus embd.I2CBus
 
-var inputChan chan uint16
+var inputChan chan float64
 
 func processInput() {
 	for {
@@ -97,19 +97,45 @@ func processInput() {
 	}
 }
 
+// Ref: https://github.com/jrowberg/i2cdevlib/blob/master/Arduino/ADS1115/ADS1115.cpp
+// Ref: https://github.com/jrowberg/i2cdevlib/blob/master/Arduino/ADS1115/ADS1115.h
+
+func writeBitsW(bus embd.I2CBus, reg byte, bit_start, val_len uint, val uint16) {
+	cur_val, err := bus.ReadWordFromReg(0x48, reg)
+	if err != nil {
+		logger.Errorf("ReadWordFromReg(): %s\n", err.Error())
+		return
+	}
+
+	mask := uint16(((1 << val_len) - 1) << (bit_start - val_len + 1))
+	val = val << (bit_start - val_len + 1)
+	val &= mask
+	cur_val &= ^(mask)
+	cur_val |= val
+	bus.WriteWordToReg(0x48, reg, cur_val)
+}
+
 func readADS1115() {
-	inputChan = make(chan uint16, 1024)
+	inputChan = make(chan float64, 1024)
 	i2cbus = embd.NewI2CBus(1) //TODO: error checking.
+
+	// Set up the device. ADS1115::setRate().
+	writeBitsW(i2cbus, 0x01, 7, 3, 0x07)  // 860 samples/sec.
+	writeBitsW(i2cbus, 0x01, 8, 1, 0)     // ADS1115_MODE_CONTINUOUS.
+	writeBitsW(i2cbus, 0x01, 11, 3, 0x02) // 2.048v gain. ADS1115_PGA_2P048. ADS1115_MV_2P048. 0.062500 V div.
 
 	go processInput()
 
 	for {
 		v, err := i2cbus.ReadWordFromReg(0x48, 0x00)
+
+		voltage := float64(v) * float64(0.062500)
+
 		if err != nil {
 			logger.Errorf("ReadWordFromReg(): %s\n", err.Error())
 		}
 
-		inputChan <- v
+		inputChan <- voltage
 		time.Sleep(100 * time.Millisecond)
 	}
 
