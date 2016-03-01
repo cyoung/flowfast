@@ -29,10 +29,22 @@ const (
 )
 
 type FlowStats struct {
-	Flow_Total        float64
+	Flow_Total float64
+	// units=gallons.
 	Flow_LastMinute   float64
 	Flow_LastSecond   float64
 	Flow_MaxPerMinute float64
+	// units=GPH.
+	Flow_LastMinute_GPH      float64
+	Flow_LastSecond_GPH      float64
+	Flow_MaxPerMinute_GPH    float64
+	Flow_LastHour_Actual_GPH float64
+}
+
+type fuel_log struct {
+	log_date_start time.Time
+	log_date_end   time.Time
+	flow           float64
 }
 
 var flow FlowStats
@@ -42,6 +54,8 @@ var logger = logging.MustGetLogger("flowfast")
 func statusWebSocket(conn *websocket.Conn) {
 	ticker := time.NewTicker(1 * time.Second)
 	n := 0
+
+	last_update := time.Now()
 	for {
 		<-ticker.C
 		updateJSON, _ := json.Marshal(&flow) //TODO.
@@ -49,7 +63,9 @@ func statusWebSocket(conn *websocket.Conn) {
 		//FIXME: Temporary.
 		n++
 		flow.Flow_LastSecond = (float64(n) / 10.0)
-		logChan <- flow.Flow_LastSecond
+		t := time.Now()
+		logChan <- fuel_log{log_date_start: last_update, log_date_end: t, flow: flow.Flow_LastSecond}
+		last_update = t
 	}
 }
 
@@ -100,11 +116,11 @@ func readADS1115() {
 	return
 }
 
-var logChan chan float64
+var logChan chan fuel_log
 
 // Logs fuel data to an SQLite database.
 func dbLogger() {
-	logChan = make(chan float64, 1024)
+	logChan = make(chan fuel_log, 1024)
 
 	// Check if we need to create a new database.
 	createDatabase := false
@@ -134,7 +150,7 @@ func dbLogger() {
 	for {
 		f := <-logChan
 		//FIXME: Timestamps here are a hack.
-		q := fmt.Sprintf("INSERT INTO fuel_flow(log_date_start, log_date_end, flow) values(%d, %d, %f)", time.Now().Unix()-1, time.Now().Unix(), f)
+		q := fmt.Sprintf("INSERT INTO fuel_flow(log_date_start, log_date_end, flow) values(%d, %d, %f)", f.log_date_start.Unix(), f.log_date_end.Unix(), f.flow)
 		_, err = db.Exec(q)
 		if err != nil {
 			logger.Errorf("stmt.Exec(): %s\n", err.Error())
