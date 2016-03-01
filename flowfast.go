@@ -16,6 +16,7 @@ import (
 	"github.com/kidoman/embd"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/op/go-logging"
+	"github.com/paulbellamy/ratecounter"
 	"golang.org/x/net/websocket"
 	"net/http"
 	"os"
@@ -31,14 +32,21 @@ const (
 type FlowStats struct {
 	Flow_Total float64
 	// units=gallons.
-	Flow_LastMinute   float64
 	Flow_LastSecond   float64
+	Flow_LastMinute   float64
 	Flow_MaxPerMinute float64
 	// units=GPH.
-	Flow_LastMinute_GPH      float64
 	Flow_LastSecond_GPH      float64
+	Flow_LastMinute_GPH      float64
 	Flow_MaxPerMinute_GPH    float64
 	Flow_LastHour_Actual_GPH float64
+	// Rate counters.
+	flow_total_raw   uint64
+	flow_last_second *ratecounter.RateCounter
+	flow_last_minute *ratecounter.RateCounter
+	flow_last_hour   *ratecounter.RateCounter
+
+	mu *sync.Mutex
 }
 
 type fuel_log struct {
@@ -58,7 +66,11 @@ func statusWebSocket(conn *websocket.Conn) {
 	last_update := time.Now()
 	for {
 		<-ticker.C
+
+		flow.mu.Lock()
 		updateJSON, _ := json.Marshal(&flow) //TODO.
+		flow.mu.Unlock()
+
 		conn.Write(updateJSON)
 		//FIXME: Temporary.
 		n++
@@ -89,11 +101,44 @@ var i2cbus embd.I2CBus
 
 var inputChan chan float64
 
+// Re-calculate stats every second.
+func statsCalculator() {
+	ticker := time.NewTicker(1 * time.Second)
+	for {
+		<-ticker.C
+		flow.mu.Lock()
+
+		flow.Flow_Total = float64(flow.flow_total_raw) * GALLONS_PER_CLICK
+		flow.Flow_LastSecond = float64(flow.flow_last_second.Rate()) * GALLONS_PER_CLICK
+		flow.Flow_LastMinute = float64(flow.flow_last_minute.Rate()) * GALLONS_PER_CLICK
+		flow.Flow_LastHour_Actual_GPH = float64(flow.flow_last_hour.Rate()) * GALLONS_PER_CLICK
+
+		// Calculate maximums.
+		if flow.Flow_LastMinute > flow.Flow_MaxPerMinute {
+			flow.Flow_MaxPerMinute = flow.Flow_LastMinute
+			flow.Flow_MaxPerMinute_GPH = flow.Flow_MaxPerMinute * float64(60.0) // Extrapolate.
+		}
+
+		// Extrapolate "GPH" numbers for the Second and Minute flow values.
+		flow.Flow_LastSecond_GPH = flow.Flow_LastSecond * float64(3600.0)
+		flow.Flow_LastMinute_GPH = flow.Flow_LastMinute * float64(60.0)
+
+		flow.mu.Unlock()
+	}
+}
+
 func processInput() {
 	for {
 		v := <-inputChan
 		logger.Debugf("%d\n", v)
 		//TODO: Add stuff here to count input.
+		countCondition := false
+		if countCondition {
+			flow.flow_total_raw++
+			flow.flow_last_second.Incr(1)
+			flow.flow_last_minute.Incr(1)
+			flow.flow_last_hour.Incr(1)
+		}
 	}
 }
 
@@ -125,6 +170,7 @@ func readADS1115() {
 	writeBitsW(i2cbus, 0x01, 11, 3, 0x02) // 2.048v gain. ADS1115_PGA_2P048. ADS1115_MV_2P048. 0.062500 V div.
 
 	go processInput()
+	go statsCalculator()
 
 	for {
 		v, err := i2cbus.ReadWordFromReg(0x48, 0x00)
@@ -200,6 +246,12 @@ func main() {
 	logFileBackend := logging.NewLogBackend(logFileFp, "", 0)
 	logFileBackendFormatter := logging.NewBackendFormatter(logFileBackend, logFormat)
 	logging.SetBackend(logBackendFormatter, logFileBackendFormatter)
+
+	// Set up rate counters and mutex.
+	flow.flow_last_second = ratecounter.NewRateCounter(1 * time.Second)
+	flow.flow_last_minute = ratecounter.NewRateCounter(1 * time.Minute)
+	flow.flow_last_hour = ratecounter.NewRateCounter(1 * time.Hour)
+	flow.mu = &sync.Mutex{}
 
 	go startWebListener()
 	go dbLogger()
