@@ -9,9 +9,9 @@
 
 		var dps = []; // dataPoints
 
-		var chart = new CanvasJS.Chart("chartContainer",{
+		var chart = new CanvasJS.Chart("Flow_LastSecond_GPH",{
 			title :{
-				text: "Fuel Flow (last minute)"
+				text: "Flow_LastSecond_GPH"
 			},			
 			data: [{
 				type: "line",
@@ -41,8 +41,10 @@
 
 		ws.onmessage = function(msg) {
 			obj = JSON.parse(msg.data);
-			console.log(obj.Flow_LastSecond);
-			
+			console.log(obj.Flow_LastSecond_GPH);
+
+			$('#current_time').html(obj.EvaluatedTime);
+
 			yVal = obj.Flow_LastSecond
 			dps.push({
 				x: xVal,
@@ -61,9 +63,11 @@
 	}
 	</script>
 	<script type="text/javascript" src="js/canvasjs.min.js"></script>
+	<script type="text/javascript" src="js/jquery-1.12.1.min.js"></script>
 </head>
 <body>
-	<div id="chartContainer" style="height: 300px; width:100%;">
+	Time: <div id="current_time"></div><br/>
+	<div id="Flow_LastSecond_GPH" style="height: 300px; width:100%;">
 	</div>
 </body>
 </html>

@@ -20,6 +20,7 @@ import (
 	"golang.org/x/net/websocket"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -30,7 +31,8 @@ const (
 )
 
 type FlowStats struct {
-	Flow_Total float64
+	EvaluatedTime time.Time // Time when the counters were evaluated.
+	Flow_Total    float64
 	// units=gallons.
 	Flow_LastSecond   float64
 	Flow_LastMinute   float64
@@ -61,7 +63,6 @@ var logger = logging.MustGetLogger("flowfast")
 
 func statusWebSocket(conn *websocket.Conn) {
 	ticker := time.NewTicker(1 * time.Second)
-	n := 0
 
 	last_update := time.Now()
 	for {
@@ -72,9 +73,6 @@ func statusWebSocket(conn *websocket.Conn) {
 		flow.mu.Unlock()
 
 		conn.Write(updateJSON)
-		//FIXME: Temporary.
-		n++
-		flow.Flow_LastSecond = (float64(n) / 10.0)
 		t := time.Now()
 		logChan <- fuel_log{log_date_start: last_update, log_date_end: t, flow: flow.Flow_LastSecond}
 		last_update = t
@@ -107,6 +105,8 @@ func statsCalculator() {
 	for {
 		<-ticker.C
 		flow.mu.Lock()
+
+		flow.EvaluatedTime = time.Now()
 
 		flow.Flow_Total = float64(flow.flow_total_raw) * GALLONS_PER_CLICK
 		flow.Flow_LastSecond = float64(flow.flow_last_second.Rate()) * GALLONS_PER_CLICK
@@ -162,15 +162,19 @@ func writeBitsW(bus embd.I2CBus, reg byte, bit_start, val_len uint, val uint16) 
 
 func readADS1115() {
 	inputChan = make(chan float64, 1024)
+
+	go processInput()
+	go statsCalculator()
+
+	//FIXME: Temporary.
+	return
+
 	i2cbus = embd.NewI2CBus(1) //TODO: error checking.
 
 	// Set up the device. ADS1115::setRate().
 	writeBitsW(i2cbus, 0x01, 7, 3, 0x07)  // 860 samples/sec.
 	writeBitsW(i2cbus, 0x01, 8, 1, 0)     // ADS1115_MODE_CONTINUOUS.
 	writeBitsW(i2cbus, 0x01, 11, 3, 0x02) // 2.048v gain. ADS1115_PGA_2P048. ADS1115_MV_2P048. 0.062500 V div.
-
-	go processInput()
-	go statsCalculator()
 
 	for {
 		v, err := i2cbus.ReadWordFromReg(0x48, 0x00)
@@ -255,7 +259,7 @@ func main() {
 
 	go startWebListener()
 	go dbLogger()
-	//go readADS1115()
+	go readADS1115()
 
 	// Wait indefinitely.
 	select {}
