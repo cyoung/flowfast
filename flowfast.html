@@ -7,15 +7,15 @@
 
 		var ws = new WebSocket("ws://192.168.1.145:8081/");
 
-		var dps = []; // dataPoints
+		var dps_seconds = []; // dataPoints
 
-		var chart = new CanvasJS.Chart("Flow_LastSecond_GPH",{
+		var chart_seconds = new CanvasJS.Chart("Flow_LastSecond_GPH",{
 			title :{
 				text: "Flow_LastSecond_GPH"
 			},			
 			data: [{
 				type: "line",
-				dataPoints: dps 
+				dataPoints: dps_seconds 
 			}],
 			axisX: {
 				title: 'sec'
@@ -32,31 +32,32 @@
 
 		// Populate with zero data to start.
 		for (i = 0; i < dataLength; i++) {
-			dps.push({
+			dps_seconds.push({
 				x: i,
 				y: 0
 			});
 		}
-		chart.render();
+		chart_seconds.render();
 
 		ws.onmessage = function(msg) {
 			obj = JSON.parse(msg.data);
-			console.log(obj.Flow_LastSecond_GPH);
+			console.log(obj.Flow_LastMinute_GPH);
 
 			$('#current_time').html(obj.EvaluatedTime);
+			$('#total_flow').html(obj.Flow_Total + " gal");
 
-			yVal = obj.Flow_LastSecond
-			dps.push({
+			yVal = obj.Flow_LastMinute_GPH;
+			dps_seconds.push({
 				x: xVal,
 				y: yVal
 			});
 			xVal++;
 
-			if (dps.length > dataLength) {
-				dps.shift();
+			if (dps_seconds.length > dataLength) {
+				dps_seconds.shift();
 			}
 			
-			chart.render();	
+			chart_seconds.render();	
 
 		};
 
@@ -67,7 +68,7 @@
 </head>
 <body>
 	Time: <div id="current_time"></div><br/>
-	<div id="Flow_LastSecond_GPH" style="height: 300px; width:100%;">
-	</div>
+	Total flow: <div id="total_flow"></div><br/>
+	<div id="Flow_LastSecond_GPH" style="height: 300px; width:100%;"></div>
 </body>
 </html>

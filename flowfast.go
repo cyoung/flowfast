@@ -106,6 +106,12 @@ func statsCalculator() {
 		<-ticker.C
 		flow.mu.Lock()
 
+		// FIXME. Temporary. Count ~100Hz signal.
+		flow.flow_total_raw += 100
+		flow.flow_last_second.Incr(100)
+		flow.flow_last_minute.Incr(100)
+		flow.flow_last_hour.Incr(100)
+
 		flow.EvaluatedTime = time.Now()
 
 		flow.Flow_Total = float64(flow.flow_total_raw) * GALLONS_PER_CLICK
