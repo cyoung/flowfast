@@ -7,6 +7,10 @@
 	flowfast.go: Counts inputs from ADS1115, sends over a websocket.
 */
 
+// A0 = +
+// A1 = -
+// 5.6K pullup on WHITE lead for FT-60.
+
 package main
 
 import (
@@ -147,7 +151,7 @@ func processInput() {
 		if !inputHigh && math.Abs(mv-5000.0) <= float64(1000.0) { // High.
 			inputHigh = true
 			countCondition = true
-			logger.Debugf("count! %f %f\n", lastMeasurement, mv)
+			//			logger.Debugf("count! %f %f\n", lastMeasurement, mv)
 		}
 
 		if countCondition {
@@ -202,7 +206,7 @@ func readADS1115() {
 		}
 
 		inputChan <- mv
-		time.Sleep(1 * time.Millisecond) // 1 kHz. Oversampling.
+		time.Sleep(100 * time.Microsecond) // Oversampling.
 	}
 
 	return

@@ -41,12 +41,12 @@
 
 		ws.onmessage = function(msg) {
 			obj = JSON.parse(msg.data);
-			console.log(obj.Flow_LastMinute_GPH);
+			console.log(obj.Flow_LastSecond_GPH);
 
 			$('#current_time').html(obj.EvaluatedTime);
 			$('#total_flow').html(obj.Flow_Total + " gal");
 
-			yVal = obj.Flow_LastMinute_GPH;
+			yVal = obj.Flow_LastSecond_GPH;
 			dps_seconds.push({
 				x: xVal,
 				y: yVal
