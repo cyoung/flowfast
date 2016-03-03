@@ -130,53 +130,26 @@ func statsCalculator() {
 }
 
 func processInput() {
-	lastMeasurement := make([]float64, 0)
-	lows := make([]float64, 0)
-	highs := make([]float64, 0)
-	calibrated := false
 
-	var lowMean float64
-	var lowStdev float64
-
-	var highMean float64
-	var highStdev float64
+	inputHigh := false
 
 	for {
 		mv := <-inputChan
 
 		countCondition := false
 
-		if len(lastMeasurement) == 0 {
-			// This is the first measurement. Can't compare against anything.
-			lastMeasurement = append(lastMeasurement, mv)
-			continue
+		// 0V low.
+		if math.Abs(mv-0.0) <= float64(1000.0) { // Low.
+			inputHigh = false
 		}
 
-		// Threshold is 1000mV of difference. Count only the leading edge.
-		if !calibrated && mv > lastMeasurement[0] && (mv-lastMeasurement[0]) > float64(1000.0) {
-			logger.Debugf("countCondition %f -> %f!\n", lastMeasurement[0], mv)
+		// 5V high.
+		if !inputHigh && math.Abs(mv-5000.0) <= float64(1000.0) { // High.
+			inputHigh = true
 			countCondition = true
-
-			// Calibrate functions.
-			lows = append(lows, lastMeasurement[0])
-			highs = append(highs, mv)
-			if len(lows) >= 1000 && len(highs) >= 1000 {
-				logger.Debugf("calibrating...\n")
-				lowMean, lowStdev = removeOutliers(lows)
-				logger.Debugf("lowMean=%f, lowStdev=%f\n", lowMean, lowStdev)
-				highMean, highStdev = removeOutliers(highs)
-				logger.Debugf("highMean=%f, highStdev=%f\n", highMean, highStdev)
-
-				calibrated = true
-			}
+			logger.Debugf("count! %f %f\n", lastMeasurement, mv)
 		}
 
-		if calibrated && (math.Abs(lastMeasurement[0]-lowMean) < 2*lowStdev) && (math.Abs(mv-highMean) < 2*highStdev) {
-			logger.Debugf("countCondition [calibrated] %f -> %f!\n", lastMeasurement[0], mv)
-			countCondition = true
-		}
-
-		lastMeasurement[0] = mv
 		if countCondition {
 			flow.flow_total_raw++
 			flow.flow_last_second.Incr(1)
