@@ -14,10 +14,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/kidoman/embd"
+	_ "github.com/kidoman/embd/host/all"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/op/go-logging"
 	"github.com/paulbellamy/ratecounter"
 	"golang.org/x/net/websocket"
+	"math"
 	"net/http"
 	"os"
 	"sync"
@@ -106,12 +108,6 @@ func statsCalculator() {
 		<-ticker.C
 		flow.mu.Lock()
 
-		// FIXME. Temporary. Count ~100Hz signal.
-		flow.flow_total_raw += 100
-		flow.flow_last_second.Incr(100)
-		flow.flow_last_minute.Incr(100)
-		flow.flow_last_hour.Incr(100)
-
 		flow.EvaluatedTime = time.Now()
 
 		flow.Flow_Total = float64(flow.flow_total_raw) * GALLONS_PER_CLICK
@@ -134,11 +130,53 @@ func statsCalculator() {
 }
 
 func processInput() {
+	lastMeasurement := make([]float64, 0)
+	lows := make([]float64, 0)
+	highs := make([]float64, 0)
+	calibrated := false
+
+	var lowMean float64
+	var lowStdev float64
+
+	var highMean float64
+	var highStdev float64
+
 	for {
-		v := <-inputChan
-		logger.Debugf("%d\n", v)
-		//TODO: Add stuff here to count input.
+		mv := <-inputChan
+
 		countCondition := false
+
+		if len(lastMeasurement) == 0 {
+			// This is the first measurement. Can't compare against anything.
+			lastMeasurement = append(lastMeasurement, mv)
+			continue
+		}
+
+		// Threshold is 1000mV of difference. Count only the leading edge.
+		if !calibrated && mv > lastMeasurement[0] && (mv-lastMeasurement[0]) > float64(1000.0) {
+			logger.Debugf("countCondition %f -> %f!\n", lastMeasurement[0], mv)
+			countCondition = true
+
+			// Calibrate functions.
+			lows = append(lows, lastMeasurement[0])
+			highs = append(highs, mv)
+			if len(lows) >= 1000 && len(highs) >= 1000 {
+				logger.Debugf("calibrating...\n")
+				lowMean, lowStdev = removeOutliers(lows)
+				logger.Debugf("lowMean=%f, lowStdev=%f\n", lowMean, lowStdev)
+				highMean, highStdev = removeOutliers(highs)
+				logger.Debugf("highMean=%f, highStdev=%f\n", highMean, highStdev)
+
+				calibrated = true
+			}
+		}
+
+		if calibrated && (math.Abs(lastMeasurement[0]-lowMean) < 2*lowStdev) && (math.Abs(mv-highMean) < 2*highStdev) {
+			logger.Debugf("countCondition [calibrated] %f -> %f!\n", lastMeasurement[0], mv)
+			countCondition = true
+		}
+
+		lastMeasurement[0] = mv
 		if countCondition {
 			flow.flow_total_raw++
 			flow.flow_last_second.Incr(1)
@@ -172,27 +210,26 @@ func readADS1115() {
 	go processInput()
 	go statsCalculator()
 
-	//FIXME: Temporary.
-	return
-
 	i2cbus = embd.NewI2CBus(1) //TODO: error checking.
 
 	// Set up the device. ADS1115::setRate().
 	writeBitsW(i2cbus, 0x01, 7, 3, 0x07)  // 860 samples/sec.
 	writeBitsW(i2cbus, 0x01, 8, 1, 0)     // ADS1115_MODE_CONTINUOUS.
-	writeBitsW(i2cbus, 0x01, 11, 3, 0x02) // 2.048v gain. ADS1115_PGA_2P048. ADS1115_MV_2P048. 0.062500 V div.
+	writeBitsW(i2cbus, 0x01, 11, 3, 0x00) // +/-6.144V. ADS1115_PGA_6P144. ADS1115_MV_6P144. 0.187500 mV div.
+	writeBitsW(i2cbus, 0x01, 14, 3, 0x00) // setMultiplexer(ADS1115_MUX_P0_N1).
 
 	for {
 		v, err := i2cbus.ReadWordFromReg(0x48, 0x00)
 
-		voltage := float64(v) * float64(0.062500)
+		cv := int16(v)
+		mv := float64(cv) * float64(0.187500) // units=mV.
 
 		if err != nil {
 			logger.Errorf("ReadWordFromReg(): %s\n", err.Error())
 		}
 
-		inputChan <- voltage
-		time.Sleep(100 * time.Millisecond)
+		inputChan <- mv
+		time.Sleep(1 * time.Millisecond) // 1 kHz. Oversampling.
 	}
 
 	return
