@@ -70,7 +70,6 @@ var logger = logging.MustGetLogger("flowfast")
 func statusWebSocket(conn *websocket.Conn) {
 	ticker := time.NewTicker(1 * time.Second)
 
-	last_update := time.Now()
 	for {
 		<-ticker.C
 
@@ -79,9 +78,6 @@ func statusWebSocket(conn *websocket.Conn) {
 		flow.mu.Unlock()
 
 		conn.Write(updateJSON)
-		t := time.Now()
-		logChan <- fuel_log{log_date_start: last_update, log_date_end: t, flow: flow.Flow_LastSecond}
-		last_update = t
 	}
 }
 
@@ -108,6 +104,7 @@ var inputChan chan float64
 // Re-calculate stats every second.
 func statsCalculator() {
 	ticker := time.NewTicker(1 * time.Second)
+	last_update := time.Now()
 	for {
 		<-ticker.C
 		flow.mu.Lock()
@@ -128,6 +125,11 @@ func statsCalculator() {
 		// Extrapolate "GPH" numbers for the Second and Minute flow values.
 		flow.Flow_LastSecond_GPH = flow.Flow_LastSecond * float64(3600.0)
 		flow.Flow_LastMinute_GPH = flow.Flow_LastMinute * float64(60.0)
+
+		// Update SQLite database.
+		t := time.Now()
+		logChan <- fuel_log{log_date_start: last_update, log_date_end: t, flow: flow.Flow_LastSecond}
+		last_update = t
 
 		flow.mu.Unlock()
 	}
@@ -151,7 +153,7 @@ func processInput() {
 		if !inputHigh && math.Abs(mv-5000.0) <= float64(1000.0) { // High.
 			inputHigh = true
 			countCondition = true
-			logger.Debugf("count! %f\n", mv)
+			//		logger.Debugf("count! %f\n", mv)
 		}
 
 		if countCondition {
@@ -208,7 +210,7 @@ func readADS1115() {
 		}
 
 		inputChan <- mv
-		time.Sleep(1 * time.Millisecond) // Oversampling.
+		time.Sleep(500 * time.Microsecond) // Oversampling.
 	}
 
 	return
