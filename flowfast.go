@@ -7,8 +7,8 @@
 	flowfast.go: Counts inputs from ADS1115, sends over a websocket.
 */
 
-// A0 = +
-// A1 = -
+// A0 = -
+// A1 = +
 // 5.6K pullup on WHITE lead for FT-60.
 
 package main
@@ -151,7 +151,7 @@ func processInput() {
 		if !inputHigh && math.Abs(mv-5000.0) <= float64(1000.0) { // High.
 			inputHigh = true
 			countCondition = true
-			//			logger.Debugf("count! %f %f\n", lastMeasurement, mv)
+			logger.Debugf("count! %f\n", mv)
 		}
 
 		if countCondition {
@@ -190,23 +190,25 @@ func readADS1115() {
 	i2cbus = embd.NewI2CBus(1) //TODO: error checking.
 
 	// Set up the device. ADS1115::setRate().
-	writeBitsW(i2cbus, 0x01, 7, 3, 0x07)  // 860 samples/sec.
-	writeBitsW(i2cbus, 0x01, 8, 1, 0)     // ADS1115_MODE_CONTINUOUS.
-	writeBitsW(i2cbus, 0x01, 11, 3, 0x00) // +/-6.144V. ADS1115_PGA_6P144. ADS1115_MV_6P144. 0.187500 mV div.
-	writeBitsW(i2cbus, 0x01, 14, 3, 0x00) // setMultiplexer(ADS1115_MUX_P0_N1).
+	writeBitsW(i2cbus, 0x01, 7, 3, 0x07)  // 3300 samples/sec.
+	writeBitsW(i2cbus, 0x01, 8, 1, 0)     // MODE_CONTINUOUS.
+	writeBitsW(i2cbus, 0x01, 11, 3, 0x00) // +/-6.144V. 3 mV div.
+	writeBitsW(i2cbus, 0x01, 14, 3, 0x00) // setMultiplexer(MUX_P0_N1).
 
 	for {
 		v, err := i2cbus.ReadWordFromReg(0x48, 0x00)
 
-		cv := int16(v)
-		mv := float64(cv) * float64(0.187500) // units=mV.
-
+		cv := int16(v >> 4)
+		if v>>15 != 0 {
+			cv = cv - 0xFFF
+		}
+		mv := float64(cv) * float64(3.0) // units=mV.
 		if err != nil {
 			logger.Errorf("ReadWordFromReg(): %s\n", err.Error())
 		}
 
 		inputChan <- mv
-		time.Sleep(100 * time.Microsecond) // Oversampling.
+		time.Sleep(1 * time.Millisecond) // Oversampling.
 	}
 
 	return
